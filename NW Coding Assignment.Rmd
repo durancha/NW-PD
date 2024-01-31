@@ -1,0 +1,178 @@
+---
+title: "NW coding assignment"
+author: "Lorenzo Duran"
+date: "2024-01-31"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(readr)
+library(ggplot2)
+library(knitr)
+trades <- read_csv("Downloads/trades.csv",
+                   show_col_types = FALSE, 
+                   col_types = cols(trans_date = col_date(format = "%m/%d/%Y")))
+
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+trades1 = trades %>% 
+  filter(trans_date >= "2023-01-01" & trans_date <= "2023-04-30") %>% 
+  distinct()
+
+```
+
+```{r}
+trades2 = trades1 %>% 
+  mutate(sums = case_when(trans_type == "A" ~ shares,
+                          trans_type == "D" ~ -1 * shares))
+
+```
+
+```{r}
+table1 = trades2 %>% 
+  group_by(ticker) %>% 
+  summarise(net_shares = sum(sums),
+            total_trades = n(),
+            percent_traded = (mean(shares/(shares + shares_owned)))*100,
+            net_profits = sum(sums*-1 * price, na.rm = T))
+```
+
+```{r}
+kable(sample_n(table1,10))
+```
+I included in the table the number of trades realized during this period
+as wellas the amount of shares transacted as a percentage of the number
+of shares held before the transaction defined as:
+
+$$mean(\frac{shares}{shares + shares\_owned})$$
+
+I think this would be a useful indicator of trade volumes
+with respect to stock holdings. 
+
+I have also included a measure for the profits taken
+during this period defined as:
+
+$$\sum shares\_disposed * sell\_price - \sum shares\_aquired * buy\_price$$
+
+Where a positive number indicates more profits, as the ticker is being sold
+more or at a higher price. Therefore, this table now includes information on
+the net number of shares transacted, a measure of the frequency of transactions
+during this period, a measure of the volume of shares transacted with respect
+to previous share holdings and a measure for the amount of profit taken during
+this period. 
+
+
+```{r, warning = F}
+stocks <- read_csv("Downloads/stocks_Jan-Nov2023.csv",show_col_types = FALSE, 
+                   col_types = cols(date = col_date(format = "%m/%d/%Y")))
+stocks1 = stocks %>% 
+  distinct()
+```
+
+```{r}
+returns_graph = function (dates, ticker1, starting){
+  data = stocks %>%
+    filter(TICKER == ticker1 & date >= dates[1] & date <= as.Date(dates[2])+1)
+  value = c(starting)
+  for (i in data$RET[2:nrow(data)]){
+  value = append(value, value[length(value)]*(1+i))
+  }
+  ggplot(data[1:nrow(data)-1,],aes(x = data$date[1:nrow(data)-1])) +
+    geom_line(aes(y = value[1:length(value)-1], color = "Investment Value"))+
+  geom_hline(yintercept = starting,
+             aes(color = "Initial Value"),linetype="dotted")+
+  theme_classic()+theme(legend.position = "top")+
+  theme(panel.grid.major.y = element_line(),
+        panel.grid.minor.y = element_line())+
+  labs(title = paste("Value of", toString(starting), "invested in",
+                     ticker1,"from",dates[1],"to",dates[2],  sep = " "),
+       x = "Date", y = "Value of Investment in USD", color = "", 
+       subtitle = paste(
+         paste("Final Value in USD:",
+               toString(round(value[length(value)-1],2))),
+         paste("Cumulative Return: ",
+               toString(round((value[length(value)-1]-starting)/starting, 4))),
+         sep = "\n"))+
+  theme(axis.title = element_text(size=11,family = "serif"),
+        plot.title = element_text(size=15,family = "serif", face = "bold"),
+        legend.text = element_text(size=10,family = "serif"),
+        plot.subtitle = element_text(size=11,family = "serif"),
+        plot.caption = element_text(size = 8,family = "serif", hjust= 0))+
+  scale_color_manual(values=c('steelblue', 'black'))
+}
+```
+
+
+```{r,warning=FALSE}
+returns_graph(c("2023-02-01","2023-08-31"),"PFE",10000)
+```
+```{r}
+table2 = stocks1 %>%
+  filter(date >= as.Date("2023-05-01")+1 & date < "2023-11-30") %>% 
+  group_by(TICKER) %>% 
+  summarise(cumulative_return_RET = prod(1 + RET, na.rm = T)-1)
+```
+
+```{r}
+kable(sample_n(table2,10))
+```
+I calculated returns based on the RET values on the original data and then
+spot-checked my results using online calculators
+like https://www.dividendchannel.com/drip-returns-calculator/
+
+
+```{r, warning = F}
+footnotes <- read_csv("Downloads/footnotes.csv", show_col_types = FALSE)
+footnotes1 = footnotes %>% 
+  distinct()
+```
+
+```{r}
+dates1 = trades1%>%
+  filter(trans_date >= "2023-01-01" & trans_date <= "2023-04-30") %>%
+  distinct(accession_num, .keep_all = T) %>% 
+  select(accession_num, trans_date)
+```
+
+```{r}
+footnotes2 = right_join(dates1,footnotes1, by = "accession_num")
+```
+
+
+```{r}
+footnotes3 = footnotes2 %>% 
+  mutate("10b5-1" = case_when(grepl("10(b)5-1", text, fixed = T)~1,
+                              grepl("10(b)5-1", text, fixed = F) ~ 0))
+```
+
+```{r}
+footnotes3 %>% 
+  filter(trans_date >= "2023-01-01" & trans_date <= "2023-04-30") %>% 
+  summarise('10(b)5-1' = sum(`10b5-1`, na.rm = T)) %>% 
+  kable()
+```
+
+```{r}
+has_10b51_ = footnotes3 %>% 
+  filter(trans_date >= "2023-01-01" & trans_date <= "2023-04-30") %>% 
+  filter(`10b5-1` == 1)
+```
+
+```{r}
+kable(has_10b51_[,c("trans_date", "accession_num", "text")])
+```
+```{r}
+has_10b51_all = footnotes3 %>%
+  filter(`10b5-1` == 1)
+kable(sample_n(has_10b51_all[,c("trans_date", "accession_num", "text")],10))
+```
+
+I looked into the original csv as a text file and also found 64 occurrences of
+10(b)5-1, which tells me that the search function for "10(b)5-1" is working
+properly. And the date filtering was done in a similar style as before,
+so its reliability has been shown in previous exercises. 
